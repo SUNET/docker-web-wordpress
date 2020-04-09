@@ -72,7 +72,7 @@ update_json header-secondary-menu-en wp-json/menus/v1/menus/header-secondary-men
 
 # Update the the JSON file with [media] from Wordpress REST API
 update_json_media=$(curl -sL $source/wp-json/wp/v2/media | md5sum | awk '{ print $1 }')
-current_file_media=$(cat $REPO/media.json | md5sum | awk '{ print $1 }')
+current_file_media=$(cat $REPO/media.json?per_page=100 | md5sum | awk '{ print $1 }')
 
 echo -e "\n-- media --"
 
@@ -81,7 +81,7 @@ if [ "$update_json_media" = "$current_file_media" ]; then
   echo "Source (checksum): $update_json_media"
   echo "Target (checksum):: $current_file_media"
 else
-  curl -sL $source/wp-json/wp/v2/media > $REPO/media.json
+  curl -sL $source/wp-json/wp/v2/media?per_page=100 > $REPO/media.json
   echo "Status: target NOT up to date. Updating..."
   echo "Source (checksum): $update_json_media"
   echo "Target (checksum):: $current_file_media"
