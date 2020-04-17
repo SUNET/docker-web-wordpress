@@ -19,3 +19,4 @@ ADD https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar /u
 RUN chmod +x /usr/local/bin/wp
 
 RUN a2enmod ssl
+RUN a2enmod headers
