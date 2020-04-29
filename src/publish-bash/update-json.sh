@@ -7,8 +7,10 @@
 # Dependicies: JQ, Curl, standard UNIX/Linux tools.                 #
 #####################################################################
 
+TEMPDIR="/tmp"
 REPO="/var/www/html/publish/sunet-www-content"
-source="http://web-wp.sunet.se"
+source=$1
+ENVIRONMENT=$2
 export HOME="/var/www"
 
 # First, check dependencies
@@ -43,20 +45,38 @@ fi
 echo "-- Date: $(date) --"
 
 function update_json {
-  source_json_md5=$(curl -sL $source/$2 | md5sum | awk '{ print $1 }')
+  curl -ksL $source/$2 | jq . > $TEMPDIR/$3
+  EXITSTATUS=$?
+
+  if [ $EXITSTATUS -ne 0 ]; then
+      echo "Error downloading $source/$2, file is not a json object." 1>&2
+      exit 1
+  fi
+  
+  
+  FILESIZE=$(stat --printf="%s" $TEMPDIR/$3)
+
+  if [ $FILESIZE -eq 0 ]; then
+      echo "Error downloading $source/$2, file size is 0 bytes." 1>&2
+      exit 1
+  fi
+
+  source_json_md5=$(cat $TEMPDIR/$3 | md5sum | awk '{ print $1 }')
   target_json_md5=$(cat $REPO/$3 | md5sum | awk '{ print $1 }')
   echo -e "\n-- $1 --"
   if [ "$source_json_md5" = "$target_json_md5" ]; then
-    echo "Status: target up to date."
+    echo "Status: $1 up to date."
     echo "Source (checksum): $source_json_md5"
     echo "Target (checksum): $target_json_md5"
+    return 0
   else
-    echo "Status: target NOT up to date. Updating and commit to GIT."
+    echo "Status: $1 NOT up to date. Updating and commit to GIT."
     echo "Source (checksum): $source_json_md5"
     echo "Target (checksum): $target_json_md5"
-    curl -sL $source/$2 > $REPO/$3
+    mv $TEMPDIR/$3 $REPO/$3
     git -C $REPO add $3
     git -C $REPO commit -m "updated $3"
+    return 1
   fi
 }
 
@@ -70,38 +90,40 @@ update_json header-menu-en wp-json/menus/v1/menus/header-menu-en header-menu-en.
 update_json header-secondary-menu-sv wp-json/menus/v1/menus/header-secondary-menu-sv header-secondary-menu-sv.json
 update_json header-secondary-menu-en wp-json/menus/v1/menus/header-secondary-menu-en header-secondary-menu-en.json
 
-# Update the the JSON file with [media] from Wordpress REST API
-update_json_media=$(curl -sL $source/wp-json/wp/v2/media?per_page=100 | md5sum | awk '{ print $1 }')
-current_file_media=$(cat $REPO/media.json | md5sum | awk '{ print $1 }')
+update_json media wp-json/wp/v2/media?per_page=100 media.json
+EXITSTATUS=$?
 
-echo -e "\n-- media --"
+if [ $EXITSTATUS -ne 0 ]; then
 
-if [ "$update_json_media" = "$current_file_media" ]; then
-  echo "Status: target up to date."
-  echo "Source (checksum): $update_json_media"
-  echo "Target (checksum):: $current_file_media"
-else
-  curl -sL $source/wp-json/wp/v2/media?per_page=100 > $REPO/media.json
-  echo "Status: target NOT up to date. Updating..."
-  echo "Source (checksum): $update_json_media"
-  echo "Target (checksum):: $current_file_media"
-
-  git -C $REPO add media.json
-  git -C $REPO commit -m "updated media.json"
-  
   for line in $(cat $REPO/media.json | jq -r .[].guid.rendered); do
-      cut_y=$(echo "$line" | sed "s|${source}/||g")
+      cut_y=$(echo "$line" | sed 's/http\(s\)\?:\/\/[^/]\+\///g')
+
+      mkdir -p `dirname "$TEMPDIR/$cut_y"`
       
-      source_json_md5=$(curl -sL $line | md5sum | awk '{ print $1 }')
-      target_json_md5=$(cat $REPO/$cut_y | md5sum | awk '{ print $1 }')
+      #wget -x -nH -nc -q -a $REPO/update-json.log --directory-prefix=$TEMPDIR "$line"
+      curl -ksL "$line" > "$TEMPDIR/$cut_y"
+      
+      FILESIZE=$(stat --printf="%s" "$TEMPDIR/$cut_y")
+
+      if [ $FILESIZE -eq 0 ]; then
+	  echo "Error downloading $line, file size is 0 bytes." 1>&2
+	  exit 1
+      fi
+      
+      source_json_md5=$(cat "$TEMPDIR/$cut_y" | md5sum | awk '{ print $1 }')
+      target_json_md5=$(cat "$REPO/$cut_y" | md5sum | awk '{ print $1 }')
+      
       echo -e "\n-- $1 --"
       if [ "$source_json_md5" = "$target_json_md5" ]; then
-	  echo "Status: target up to date."
+	  echo "Status: $cut_y up to date."
       else
-	  echo "Status: target NOT up to date. Updating and commit to GIT."
+	  echo "Status: $cut_y NOT up to date. Updating and commit to GIT."
+
+	  mkdir -p `dirname "$REPO/$cut_y"`
 	  
-	  wget -x -nH -nc -q -a $REPO/update-json.log --directory-prefix=$REPO $line
-	  git -C $REPO add $cut_y
+	  mv "$TEMPDIR/$cut_y" "$REPO/$cut_y"
+	  
+	  git -C $REPO add "$cut_y"
 	  git -C $REPO commit -m "updated file $cut_y"
 	  
       fi
@@ -110,13 +132,22 @@ else
 
   for y in $(find $REPO/wp-content -type f); do
     cut_y=$(echo "$y" | sed "s|${REPO}/||g")
-    cut_ya="$source/$cut_y"
-    in_local_json=$(cat $REPO/media.json | jq -r ".[].guid | select(.rendered==\"$cut_ya\") .rendered" | cut -d/ -f4- | head -n 1)
-    if ! [ "$in_local_json" = "$cut_y" ]; then
+
+    in_local_json=$(cat $REPO/media.json | jq -r ".[].guid | .rendered" | grep $cut_y | wc -l )
+    if [ "$in_local_json" -eq "0" ]; then
 	git -C $REPO rm $cut_y
 	git -C $REPO commit -m "removed $cut_y" 
     fi
   done
 fi
 
-GIT_SSH_COMMAND='ssh -o UserKnownHostsFile=/var/www/.ssh/known_hosts -i /var/www/.ssh/github' git -C $REPO push
+export GIT_SSH_COMMAND='ssh -o UserKnownHostsFile=/var/www/.ssh/known_hosts -i /var/www/.ssh/github'
+
+git -C $REPO push
+
+if [ "$ENVIRONMENT" == "prod" ]; then
+    git -C $REPO tag -d prod
+    git -C $REPO push origin --delete "prod"
+    git -C $REPO tag -m "Prod changed" "prod"
+    git -C $REPO push --tags
+fi
