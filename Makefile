@@ -1,4 +1,4 @@
-VERSION:=latest
+VERSION:=1.0.1
 NAME:=sunet-web-wordpress
 
 all: build push
