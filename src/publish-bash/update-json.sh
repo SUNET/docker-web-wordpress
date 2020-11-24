@@ -45,24 +45,66 @@ fi
 echo "-- Date: $(date) --"
 
 function update_json {
-  curl -ksL $source/$2 | jq . > $TEMPDIR/$3
-  EXITSTATUS=$?
+ COUNT=1
 
-  if [ $EXITSTATUS -ne 0 ]; then
-      echo "Error downloading $source/$2, file is not a json object." 1>&2
-      exit 1
+  for i in `seq 1 10`; do
+
+    FILE=$1-$i.json
+    curl -ksL "$source/$2?per_page=100&page=$i" | jq '.' > $TEMPDIR/$FILE
+    EXITSTATUS=$?
+
+    if [ $EXITSTATUS -ne 0 ]; then
+        if [ $i -gt 1 ]; then
+            break
+        fi
+        echo "Error downloading $source/$2, file is not a json object." 1>&2
+        exit 1
+    fi
+
+    FILESIZE=$(stat --printf="%s" $TEMPDIR/$FILE)
+
+    if [ $FILESIZE -eq 0 ]; then
+        if [ $i -gt 1 ]; then
+            break
+        fi
+        echo "Error downloading $source/$2, file size is 0 bytes." 1>&2
+        exit 1
+    fi
+
+    if [ "x$3" = "xmenu" ]; then
+        break
+    fi
+
+    EMPTY=$(jq '.[]' $TEMPDIR/$FILE 2>/dev/null)
+
+    if [ "x$EMPTY" = "x" ]; then
+        break
+    fi
+
+    STATUS=$(jq '.data.status' $TEMPDIR/$FILE 2>/dev/null)
+
+    if [ "x$STATUS" = "x400" ]; then
+        break
+    fi
+
+    COUNT=$i
+
+  done
+
+  if [ $COUNT -gt 1 ]; then
+      for i in `seq 1 $COUNT`; do
+          cat $TEMPDIR/$1-$i.json | jq '.[]' > $TEMPDIR/$1-$i-temp.json
+
+      done
+      cat $TEMPDIR/$1-[1-$COUNT]-temp.json | jq -s . > $TEMPDIR/$1.json
+
+  else
+      cat $TEMPDIR/$1-1.json > $TEMPDIR/$1.json
   fi
-  
-  
-  FILESIZE=$(stat --printf="%s" $TEMPDIR/$3)
 
-  if [ $FILESIZE -eq 0 ]; then
-      echo "Error downloading $source/$2, file size is 0 bytes." 1>&2
-      exit 1
-  fi
+  source_json_md5=$(cat $TEMPDIR/$1.json | md5sum | awk '{ print $1 }')
+  target_json_md5=$(cat $REPO/$1.json | md5sum | awk '{ print $1 }')
 
-  source_json_md5=$(cat $TEMPDIR/$3 | md5sum | awk '{ print $1 }')
-  target_json_md5=$(cat $REPO/$3 | md5sum | awk '{ print $1 }')
   echo -e "\n-- $1 --"
   if [ "$source_json_md5" = "$target_json_md5" ]; then
     echo "Status: $1 up to date."
@@ -73,24 +115,24 @@ function update_json {
     echo "Status: $1 NOT up to date. Updating and commit to GIT."
     echo "Source (checksum): $source_json_md5"
     echo "Target (checksum): $target_json_md5"
-    mv $TEMPDIR/$3 $REPO/$3
-    git -C $REPO add $3
-    git -C $REPO commit -m "updated $3"
+    mv $TEMPDIR/$1.json $REPO/$1.json
+    git -C $REPO add $1.json
+    git -C $REPO commit -m "updated $1"
     return 1
   fi
 }
 
-update_json pages wp-json/wp/v2/pages?per_page=100 pages.json
-update_json tjanster wp-json/wp/v2/tjanster?per_page=100 tjanster.json
-update_json person wp-json/wp/v2/person?per_page=100 person.json
-update_json evenemang wp-json/wp/v2/evenemang?per_page=100 evenemang.json
-update_json categories wp-json/wp/v2/categories?per_page=100 categories.json
-update_json header-menu-sv wp-json/menus/v1/menus/header-menu-sv header-menu-sv.json
-update_json header-menu-en wp-json/menus/v1/menus/header-menu-en header-menu-en.json
-update_json header-secondary-menu-sv wp-json/menus/v1/menus/header-secondary-menu-sv header-secondary-menu-sv.json
-update_json header-secondary-menu-en wp-json/menus/v1/menus/header-secondary-menu-en header-secondary-menu-en.json
+update_json pages wp-json/wp/v2/pages
+update_json tjanster wp-json/wp/v2/tjanster
+update_json person wp-json/wp/v2/person
+update_json evenemang wp-json/wp/v2/evenemang
+update_json categories wp-json/wp/v2/categories
+update_json header-menu-sv wp-json/menus/v1/menus/header-menu-sv menu
+update_json header-menu-en wp-json/menus/v1/menus/header-menu-en menu
+update_json header-secondary-menu-sv wp-json/menus/v1/menus/header-secondary-menu-sv menu
+update_json header-secondary-menu-en wp-json/menus/v1/menus/header-secondary-menu-en menu
 
-update_json media wp-json/wp/v2/media?per_page=100 media.json
+update_json media wp-json/wp/v2/media
 EXITSTATUS=$?
 
 if [ $EXITSTATUS -ne 0 ]; then
