@@ -122,6 +122,7 @@ function update_json {
   fi
 }
 
+update_json posts wp-json/wp/v2/posts
 update_json pages wp-json/wp/v2/pages
 update_json tjanster wp-json/wp/v2/tjanster
 update_json person wp-json/wp/v2/person
