@@ -125,6 +125,7 @@ function update_json {
 update_json posts wp-json/wp/v2/posts
 update_json pages wp-json/wp/v2/pages
 update_json tjanster wp-json/wp/v2/tjanster
+update_json projekt wp-json/wp/v2/projekt
 update_json person wp-json/wp/v2/person
 update_json evenemang wp-json/wp/v2/evenemang
 update_json categories wp-json/wp/v2/categories
